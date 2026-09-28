@@ -1,13 +1,83 @@
 "use client";
 
 import { Check, FileUp, FolderOpen, Image as ImageIcon, Pause, Play, Radio, RotateCcw, ShieldCheck, WifiOff, X } from "lucide-react";
-import { chacha20poly1305 } from "@noble/ciphers/chacha.js";
 import { bytesToHex, randomBytes } from "@noble/ciphers/utils.js";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
 const CHUNK_SIZE = 8 * 1024 * 1024;
-const CONCURRENCY = 3;
 const RETRIES = 5;
+
+type Encrypted = { ivHex: string; cipher: ArrayBuffer };
+type CryptoJob = { id: number; key: Uint8Array; plain: Uint8Array; resolve: (value: Encrypted) => void; reject: (reason: Error) => void };
+type CryptoSlot = { worker: Worker; busy: boolean; job?: CryptoJob };
+
+class CryptoPool {
+  private slots: CryptoSlot[];
+  private queue: CryptoJob[] = [];
+  private nextId = 1;
+
+  constructor(size: number) {
+    this.slots = Array.from({ length: size }, () => {
+      const slot: CryptoSlot = {
+        worker: new Worker(new URL("./crypto.worker.ts", import.meta.url), { type: "module" }),
+        busy: false,
+      };
+      slot.worker.onmessage = (event: MessageEvent<{ id: number; ivHex?: string; cipher?: ArrayBuffer; error?: string }>) => {
+        const job = slot.job;
+        slot.busy = false;
+        slot.job = undefined;
+        if (job && event.data.id === job.id) {
+          if (event.data.error || !event.data.ivHex || !event.data.cipher) job.reject(new Error(event.data.error || "Encryption failed"));
+          else job.resolve({ ivHex: event.data.ivHex, cipher: event.data.cipher });
+        }
+        this.dispatch();
+      };
+      slot.worker.onerror = () => {
+        slot.job?.reject(new Error("Encryption worker stopped"));
+        slot.busy = false;
+        slot.job = undefined;
+        this.dispatch();
+      };
+      return slot;
+    });
+  }
+
+  encrypt(key: Uint8Array, plain: Uint8Array) {
+    return new Promise<Encrypted>((resolve, reject) => {
+      this.queue.push({ id: this.nextId++, key, plain, resolve, reject });
+      this.dispatch();
+    });
+  }
+
+  private dispatch() {
+    for (const slot of this.slots) {
+      const job = this.queue.shift();
+      if (!job) return;
+      if (slot.busy) {
+        this.queue.unshift(job);
+        continue;
+      }
+      slot.busy = true;
+      slot.job = job;
+      const keyBuffer = job.key.slice().buffer as ArrayBuffer;
+      const plainBuffer = job.plain.byteOffset === 0 && job.plain.byteLength === job.plain.buffer.byteLength
+        ? job.plain.buffer as ArrayBuffer
+        : job.plain.slice().buffer as ArrayBuffer;
+      slot.worker.postMessage({ id: job.id, key: keyBuffer, plain: plainBuffer }, [keyBuffer, plainBuffer]);
+    }
+  }
+}
+
+let cryptoPool: CryptoPool | undefined;
+
+function transferLanes() {
+  return Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) - 1));
+}
+
+function encryptOffThread(key: Uint8Array, value: Uint8Array) {
+  cryptoPool ??= new CryptoPool(transferLanes());
+  return cryptoPool.encrypt(key, value);
+}
 
 type Status = "queued" | "uploading" | "paused" | "done" | "error";
 type Item = {
@@ -33,12 +103,6 @@ function formatBytes(value: number) {
 function base64UrlToBytes(value: string) {
   const padded = value.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((value.length + 3) % 4);
   return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
-}
-
-async function encryptedBody(key: Uint8Array, value: Uint8Array) {
-  const iv = randomBytes(12);
-  const cipher = chacha20poly1305(key, iv).encrypt(value);
-  return { iv, cipher };
 }
 
 function UploadIcon({ item }: { item: Item }) {
@@ -127,10 +191,10 @@ export function Sender() {
       fingerprint: `${item.file.name}:${item.file.size}:${item.file.lastModified}`,
     }));
     try {
-      const sealed = await encryptedBody(encryptionKey, metadata);
+      const sealed = await encryptOffThread(encryptionKey, metadata);
       const initResponse = await request("/api/uploads/init", {
         method: "POST",
-        headers: { "x-session-id": sessionId, "x-iv": Array.from(sealed.iv, (b) => b.toString(16).padStart(2, "0")).join("") },
+        headers: { "x-session-id": sessionId, "x-iv": sealed.ivHex },
         body: sealed.cipher,
       });
       const initialized = await initResponse.json() as { uploadId: string; received: number[] };
@@ -150,23 +214,24 @@ export function Sender() {
           const index = pending[cursor++];
           const offset = index * CHUNK_SIZE;
           const plain = new Uint8Array(await item.file.slice(offset, Math.min(item.file.size, offset + CHUNK_SIZE)).arrayBuffer());
-          const chunk = await encryptedBody(encryptionKey, plain);
+          const plainLength = plain.byteLength;
+          const chunk = await encryptOffThread(encryptionKey, plain);
           await request(`/api/uploads/${initialized.uploadId}/chunks/${index}`, {
             method: "POST",
             headers: {
               "x-session-id": sessionId,
-              "x-iv": Array.from(chunk.iv, (b) => b.toString(16).padStart(2, "0")).join(""),
+              "x-iv": chunk.ivHex,
               "x-offset": String(offset),
             },
             body: chunk.cipher,
           });
-          acknowledged += plain.byteLength;
+          acknowledged += plainLength;
           const elapsed = Math.max(0.25, (performance.now() - started) / 1000);
           update(item.key, { sent: acknowledged, speed: Math.max(0, (acknowledged - resumedBytes) / elapsed) });
         }
       }
 
-      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, pending.length || 1) }, worker));
+      await Promise.all(Array.from({ length: Math.min(transferLanes(), pending.length || 1) }, worker));
       const latest = itemsRef.current.find((candidate) => candidate.key === item.key);
       if (latest?.status === "paused") return;
       const complete = await request(`/api/uploads/${initialized.uploadId}/complete`, {
@@ -217,7 +282,7 @@ export function Sender() {
               return (
                 <article className={`upload-item ${item.status}`} key={item.key}>
                   <span className="upload-icon"><UploadIcon item={item} /></span>
-                  <div className="upload-info"><strong>{item.file.name}</strong><small>{item.status === "uploading" ? `${percent}% · ${formatBytes(item.speed)}/s` : item.status === "done" ? `${formatBytes(item.file.size)} · sent` : item.error ?? `${formatBytes(item.file.size)} · ${item.status}`}</small><div className="mini-track"><span style={{ width: `${percent}%` }} /></div></div>
+                  <div className="upload-info"><strong>{item.file.name}</strong><small>{item.status === "uploading" ? `${percent}% · ${formatBytes(item.speed)}/s · ${(item.speed * 8 / 1_000_000).toFixed(0)} Mbps` : item.status === "done" ? `${formatBytes(item.file.size)} · sent` : item.error ?? `${formatBytes(item.file.size)} · ${item.status}`}</small><div className="mini-track"><span style={{ width: `${percent}%` }} /></div></div>
                   {item.status === "uploading" ? <button onClick={() => pause(item.key)} aria-label="Pause"><Pause size={17} /></button> : item.status === "done" ? <span className="done-mark"><Check size={17} /></span> : item.status === "paused" || item.status === "error" ? <button onClick={() => void upload(item)} aria-label="Resume"><RotateCcw size={17} /></button> : <button onClick={() => remove(item.key)} aria-label="Remove"><X size={17} /></button>}
                 </article>
               );
@@ -226,7 +291,7 @@ export function Sender() {
           {items.some((item) => item.status !== "done" && item.status !== "uploading") && <button className="send-button" onClick={() => void startAll()} disabled={!session}><Play size={19} fill="currentColor" /> Send now</button>}
         </section>
       )}
-      <p className="keep-awake">For best speed, keep both devices on 5 GHz Wi‑Fi and this screen awake.</p>
+      <p className="keep-awake">Speed shows both MB/s and Mbps. 2.5 MB/s = 20 Mbps. Keep both devices on 5 GHz Wi‑Fi and this screen awake.</p>
     </main>
   );
 }
