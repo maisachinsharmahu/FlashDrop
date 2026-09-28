@@ -1,0 +1,27 @@
+{
+  "name": "flashdrop-lan",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "NODE_ENV=development node server.mjs",
+    "build": "next build",
+    "start": "NODE_ENV=production node server.mjs",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@noble/ciphers": "^2.4.0",
+    "@types/qrcode": "^1.5.5",
+    "lucide-react": "^0.468.0",
+    "next": "16.3.6",
+    "qrcode": "^1.5.4",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.3",
+    "@types/react-dom": "^19.0.2",
+    "typescript": "^5.7.2"
+  }
+}
