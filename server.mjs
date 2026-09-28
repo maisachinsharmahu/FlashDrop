@@ -9,7 +9,6 @@ import next from "next";
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "0.0.0.0";
 const port = Number(process.env.PORT || 43110);
-const lanIp = process.env.FLASHDROP_HOST || findLanIp();
 const destination = process.env.FLASHDROP_DESTINATION || path.join(os.homedir(), "Downloads", "FlashDrop");
 const stateDir = process.env.FLASHDROP_DATA_DIR || path.join(os.homedir(), "Library", "Application Support", "FlashDrop Web");
 const statePath = path.join(stateDir, "state.json");
@@ -43,7 +42,10 @@ function isPrivateIp(ip) {
 
 function isThisMac(req) {
   const remote = (req.socket.remoteAddress || "").replace(/^::ffff:/, "");
-  return remote === "127.0.0.1" || remote === "::1" || remote === lanIp;
+  if (remote === "127.0.0.1" || remote === "::1") return true;
+  return Object.values(os.networkInterfaces()).some((entries) =>
+    (entries || []).some((item) => item.family === "IPv4" && item.address === remote),
+  );
 }
 
 async function loadState() {
@@ -130,10 +132,11 @@ async function locked(id, work) {
 async function api(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/bootstrap") {
     if (!isThisMac(req)) return fail(res, 403, "Dashboard is only available on the receiving Mac.");
-    const pairingUrl = `http://${lanIp}:${port}/send#s=${state.session.id}&k=${state.session.key}`;
+    const currentLanIp = process.env.FLASHDROP_HOST || findLanIp();
+    const pairingUrl = `http://${currentLanIp}:${port}/send#s=${state.session.id}&k=${state.session.key}`;
     return json(res, 200, {
       pairingUrl,
-      displayUrl: `http://${lanIp}:${port}`,
+      displayUrl: `http://${currentLanIp}:${port}`,
       destination,
       deviceName: os.hostname(),
       recent: state.recent.slice(0, 8),
@@ -223,7 +226,7 @@ async function api(req, res, url) {
 
 const server = createServer(async (req, res) => {
   try {
-    const url = new URL(req.url || "/", `http://${req.headers.host || `${lanIp}:${port}`}`);
+    const url = new URL(req.url || "/", `http://${req.headers.host || `127.0.0.1:${port}`}`);
     if (!isPrivateIp((req.socket.remoteAddress || "").replace(/^::ffff:/, ""))) return fail(res, 403, "FlashDrop only accepts private-network connections.");
     if (url.pathname.startsWith("/api/")) return await api(req, res, url);
     res.setHeader("X-Content-Type-Options", "nosniff");
@@ -243,6 +246,6 @@ server.headersTimeout = 80_000;
 server.requestTimeout = 0;
 
 server.listen(port, hostname, () => {
-  console.log(`\n  FlashDrop receiver: http://${lanIp}:${port}`);
+  console.log(`\n  FlashDrop receiver: http://${process.env.FLASHDROP_HOST || findLanIp()}:${port}`);
   console.log(`  Files save to:      ${destination}\n`);
 });
