@@ -59,6 +59,28 @@ pub async fn sha256_file_content(
             let file = tokio::fs::File::open(&path).await?;
             read_and_hash_from_file(&mut hasher, file, cancel_token, progress).await?;
         }
+        FileContent::PathFrom { path, offset } => {
+            use tokio::io::{AsyncSeekExt, SeekFrom};
+
+            tracing::info!(
+                "Hashing file content from path: {} (offset: {offset})",
+                path.display()
+            );
+            let mut file = tokio::fs::File::open(&path).await?;
+            let size = file.metadata().await?.len();
+            if offset > size {
+                return Err(HashError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!(
+                        "Resume offset {offset} exceeds {} byte file {}",
+                        size,
+                        path.display()
+                    ),
+                )));
+            }
+            file.seek(SeekFrom::Start(offset)).await?;
+            read_and_hash_from_file(&mut hasher, file, cancel_token, progress).await?;
+        }
         #[cfg(target_os = "android")]
         FileContent::Fd(fd) => {
             use std::os::fd::FromRawFd;

@@ -41,7 +41,7 @@ class TranslationsSrCyrl extends TranslationsSr with BaseTranslations<AppLocale,
 
   // Translations
   @override
-  String get appName => 'LocalSend';
+  String get appName => 'FlashDrop';
   @override
   late final _Translations$general$sr_Cyrl general = _Translations$general$sr_Cyrl._(_root);
   @override

@@ -40,7 +40,7 @@ class TranslationsGu extends Translations with BaseTranslations<AppLocale, Trans
 
   // Translations
   @override
-  String get appName => 'LocalSend';
+  String get appName => 'FlashDrop';
   @override
   late final _Translations$general$gu general = _Translations$general$gu._(_root);
   @override

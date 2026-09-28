@@ -40,7 +40,7 @@ class TranslationsFi extends Translations with BaseTranslations<AppLocale, Trans
 
   // Translations
   @override
-  String get appName => 'LocalSend';
+  String get appName => 'FlashDrop';
   @override
   late final _Translations$general$fi general = _Translations$general$fi._(_root);
   @override

@@ -1,0 +1,12 @@
+FlashDrop
+Copyright 2026 FlashDrop contributors
+
+This product is based on LocalSend:
+Copyright 2022-2026 Tien Do Nam and LocalSend contributors
+https://github.com/localsend/localsend
+
+The upstream work and this derivative are distributed under the Apache
+License, Version 2.0. See LICENSE for the complete license text.
+
+FlashDrop is an independent derivative and is not endorsed by the LocalSend
+project.

@@ -40,7 +40,7 @@ class TranslationsPl extends Translations with BaseTranslations<AppLocale, Trans
 
   // Translations
   @override
-  String get appName => 'LocalSend';
+  String get appName => 'FlashDrop';
   @override
   late final _Translations$general$pl general = _Translations$general$pl._(_root);
   @override

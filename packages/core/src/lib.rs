@@ -7,6 +7,7 @@ pub mod http;
 pub mod model;
 #[cfg(feature = "multicast")]
 pub mod multicast;
+pub mod resume;
 pub mod util;
 pub mod webrtc;
 

@@ -1,4 +1,4 @@
-package org.localsend.localsend_app
+package dev.flashdrop.app
 
 import android.annotation.SuppressLint
 import android.app.ActivityManager

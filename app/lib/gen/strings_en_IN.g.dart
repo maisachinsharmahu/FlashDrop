@@ -40,7 +40,7 @@ class TranslationsEnIn extends Translations with BaseTranslations<AppLocale, Tra
 
   // Translations
   @override
-  String get appName => 'LocalSend';
+  String get appName => 'FlashDrop';
   @override
   late final _Translations$general$en_IN general = _Translations$general$en_IN._(_root);
   @override

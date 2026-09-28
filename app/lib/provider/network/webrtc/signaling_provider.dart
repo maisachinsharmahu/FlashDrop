@@ -6,7 +6,6 @@ import 'package:localsend_app/provider/device_info_provider.dart';
 import 'package:localsend_app/provider/favorites_provider.dart';
 import 'package:localsend_app/provider/network/nearby_devices_provider.dart';
 import 'package:localsend_app/provider/network/webrtc/webrtc_receiver.dart';
-import 'package:localsend_app/provider/persistence_provider.dart';
 import 'package:localsend_app/provider/security_provider.dart';
 import 'package:localsend_app/provider/settings_provider.dart';
 import 'package:localsend_isolates/constants.dart';
@@ -18,7 +17,8 @@ import 'package:refena_flutter/refena_flutter.dart';
 
 part 'signaling_provider.mapper.dart';
 
-/// WebRTC (and therefore the signaling connection) is disabled for now.
+/// FlashDrop is intentionally local-only. It never connects to a public
+/// signaling, relay, analytics, or account service.
 const webRTCEnabled = false;
 
 @MappableClass()
@@ -35,23 +35,15 @@ class SignalingState with SignalingStateMappable {
 }
 
 final signalingProvider = ReduxProvider<SignalingService, SignalingState>((ref) {
-  return SignalingService(
-    persistence: ref.read(persistenceProvider),
-  );
+  return SignalingService();
 });
 
 class SignalingService extends ReduxNotifier<SignalingState> {
-  final PersistenceService _persistence;
-
-  SignalingService({
-    required PersistenceService persistence,
-  }) : _persistence = persistence;
-
   @override
   SignalingState init() {
     return SignalingState(
-      signalingServers: _persistence.getSignalingServers() ?? ['wss://public.localsend.org/v1/ws'],
-      stunServers: _persistence.getStunServers() ?? ['stun:stun.localsend.org:3478'],
+      signalingServers: const [],
+      stunServers: const [],
       connections: {},
     );
   }
@@ -87,7 +79,7 @@ class _SetupSignalingConnection extends AsyncGlobalAction {
 
     LsSignalingConnection? connection;
     final stream = connect(
-      uri: 'wss://public.localsend.org/v1/ws',
+      uri: signalingServer,
       info: ProposingClientInfo(
         alias: settings.alias,
         version: protocolVersion,

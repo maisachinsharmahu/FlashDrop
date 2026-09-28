@@ -394,7 +394,10 @@ class PersistenceService {
   }
 
   bool getCreateChecksums() {
-    return _prefs.getBool(_createChecksums) ?? true;
+    // TLS already protects each local transfer in flight. Avoid reading a
+    // multi-gigabyte file once just to hash it and then again to send it.
+    // Users can still enable full-file checksums in Advanced settings.
+    return _prefs.getBool(_createChecksums) ?? false;
   }
 
   Future<void> setCreateChecksums(bool createChecksums) async {

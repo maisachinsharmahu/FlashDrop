@@ -40,7 +40,7 @@ class TranslationsZhHk extends Translations with BaseTranslations<AppLocale, Tra
 
   // Translations
   @override
-  String get appName => 'LocalSend';
+  String get appName => 'FlashDrop';
   @override
   late final Translations$general$zh_HK general = Translations$general$zh_HK.internal(_root);
   @override

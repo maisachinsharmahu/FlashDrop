@@ -40,7 +40,7 @@ class TranslationsBg extends Translations with BaseTranslations<AppLocale, Trans
 
   // Translations
   @override
-  String get appName => 'LocalSend';
+  String get appName => 'FlashDrop';
   @override
   late final _Translations$general$bg general = _Translations$general$bg._(_root);
   @override

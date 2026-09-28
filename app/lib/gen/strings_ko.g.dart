@@ -40,7 +40,7 @@ class TranslationsKo extends Translations with BaseTranslations<AppLocale, Trans
 
   // Translations
   @override
-  String get appName => 'LocalSend';
+  String get appName => 'FlashDrop';
   @override
   late final _Translations$general$ko general = _Translations$general$ko._(_root);
   @override

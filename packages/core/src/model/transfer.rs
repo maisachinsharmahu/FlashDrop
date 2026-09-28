@@ -6,11 +6,12 @@ use std::pin::Pin;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
-/// Limit queued file read-ahead to 2 MiB per active stream.
-const FILE_CHANNEL_CAPACITY: usize = 4;
+/// Keep enough native read-ahead to fill fast Wi-Fi without making memory use
+/// dependent on the size of the file.
+const FILE_CHANNEL_CAPACITY: usize = 8;
 
 /// Buffer size used when reading a file into chunks.
-const READ_BUFFER_SIZE: usize = 512 * 1024;
+const READ_BUFFER_SIZE: usize = 1024 * 1024;
 
 /// A file's content as a stream of chunks, ending with an [`Err`] item when the
 /// file could not be read.
@@ -33,6 +34,13 @@ pub enum FileContent {
 
     /// A path to a regular file the content is read from.
     Path(PathBuf),
+
+    /// A regular file streamed from `offset` instead of from the beginning.
+    ///
+    /// Used by resumable transfers after the receiver has acknowledged a
+    /// durable prefix. Keeping the seek in the Rust I/O layer avoids reading
+    /// discarded gigabytes through Dart/FFI after a connection interruption.
+    PathFrom { path: PathBuf, offset: u64 },
 
     /// A raw file descriptor the content is read from (Android only).
     #[cfg(target_os = "android")]
@@ -74,6 +82,42 @@ impl FileContent {
                                     format!("Failed to open {}: {e}", path.display()),
                                 )))
                                 .await;
+                        }
+                    }
+                });
+                Box::pin(ReceiverStream::new(rx))
+            }
+            FileContent::PathFrom { path, offset } => {
+                tracing::info!(
+                    "Reading file content from path: {} (offset: {offset})",
+                    path.display()
+                );
+                let (tx, rx) = mpsc::channel(FILE_CHANNEL_CAPACITY);
+                tokio::spawn(async move {
+                    use tokio::io::{AsyncSeekExt, SeekFrom};
+
+                    let result = async {
+                        let mut file = tokio::fs::File::open(&path).await?;
+                        let size = file.metadata().await?.len();
+                        if offset > size {
+                            return Err(std::io::Error::new(
+                                std::io::ErrorKind::InvalidInput,
+                                format!(
+                                    "Resume offset {offset} exceeds {} byte file {}",
+                                    size,
+                                    path.display()
+                                ),
+                            ));
+                        }
+                        file.seek(SeekFrom::Start(offset)).await?;
+                        Ok(file)
+                    }
+                    .await;
+
+                    match result {
+                        Ok(file) => read_file_into_sender(file, tx).await,
+                        Err(e) => {
+                            let _ = tx.send(Err(e)).await;
                         }
                     }
                 });
@@ -332,5 +376,48 @@ mod tests {
             content.extend_from_slice(&chunk.expect("a readable file must not fail the stream"));
         }
         assert_eq!(content.as_slice(), b"hello");
+    }
+
+    #[tokio::test]
+    async fn resumable_path_starts_at_the_acknowledged_offset() {
+        let path = std::env::temp_dir().join(format!("flashdrop-resume-{}", uuid::Uuid::new_v4()));
+        std::fs::write(&path, b"already-sent|remaining").unwrap();
+
+        let chunks: Vec<_> = FileContent::PathFrom {
+            path: path.clone(),
+            offset: 13,
+        }
+        .into_stream()
+        .collect()
+        .await;
+        std::fs::remove_file(&path).unwrap();
+
+        let content = chunks
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+            .concat();
+        assert_eq!(content, b"remaining");
+    }
+
+    #[tokio::test]
+    async fn resumable_path_rejects_an_offset_past_eof() {
+        let path = std::env::temp_dir().join(format!("flashdrop-resume-{}", uuid::Uuid::new_v4()));
+        std::fs::write(&path, b"short").unwrap();
+
+        let chunks: Vec<_> = FileContent::PathFrom {
+            path: path.clone(),
+            offset: 6,
+        }
+        .into_stream()
+        .collect()
+        .await;
+        std::fs::remove_file(&path).unwrap();
+
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(
+            chunks[0].as_ref().unwrap_err().kind(),
+            std::io::ErrorKind::InvalidInput
+        );
     }
 }
