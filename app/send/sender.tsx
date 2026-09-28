@@ -96,12 +96,15 @@ export function Sender() {
   async function request(url: string, init: RequestInit, attempts = RETRIES): Promise<Response> {
     let last: unknown;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 45_000);
       try {
-        const response = await fetch(url, init);
+        const response = await fetch(url, { ...init, signal: controller.signal });
         if (response.ok) return response;
         if (response.status < 500 && response.status !== 429) throw new Error(await response.text());
         last = new Error(`Receiver returned ${response.status}`);
       } catch (cause) { last = cause; }
+      finally { window.clearTimeout(timeout); }
       await new Promise((resolve) => setTimeout(resolve, Math.min(8000, 500 * 2 ** attempt)));
     }
     throw last instanceof Error ? last : new Error("Connection lost");
@@ -134,6 +137,7 @@ export function Sender() {
       update(item.key, { uploadId: initialized.uploadId });
       const done = new Set(initialized.received);
       let acknowledged = initialized.received.reduce((sum, index) => sum + Math.min(CHUNK_SIZE, item.file.size - index * CHUNK_SIZE), 0);
+      const resumedBytes = acknowledged;
       update(item.key, { sent: acknowledged });
       const pending = Array.from({ length: totalChunks }, (_, index) => index).filter((index) => !done.has(index));
       let cursor = 0;
@@ -158,7 +162,7 @@ export function Sender() {
           });
           acknowledged += plain.byteLength;
           const elapsed = Math.max(0.25, (performance.now() - started) / 1000);
-          update(item.key, { sent: acknowledged, speed: Math.max(0, (acknowledged - initialized.received.length * CHUNK_SIZE) / elapsed) });
+          update(item.key, { sent: acknowledged, speed: Math.max(0, (acknowledged - resumedBytes) / elapsed) });
         }
       }
 
@@ -180,7 +184,7 @@ export function Sender() {
   async function startAll() {
     setConnectionError("");
     for (const item of itemsRef.current) {
-      if (item.status === "queued" || item.status === "paused" || item.status === "error") void upload(item);
+      if (item.status === "queued" || item.status === "paused" || item.status === "error") await upload(item);
     }
   }
 
