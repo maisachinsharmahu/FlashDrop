@@ -19,7 +19,7 @@ class CryptoPool {
   constructor(size: number) {
     this.slots = Array.from({ length: size }, () => {
       const slot: CryptoSlot = {
-        worker: new Worker(new URL("./crypto.worker.ts", import.meta.url), { type: "module" }),
+        worker: new Worker("/crypto.worker.js"),
         busy: false,
       };
       slot.worker.onmessage = (event: MessageEvent<{ id: number; ivHex?: string; cipher?: ArrayBuffer; error?: string }>) => {

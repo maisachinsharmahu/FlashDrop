@@ -4,14 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "NODE_ENV=development node server.mjs",
-    "build": "next build",
+    "build:worker": "esbuild workers/crypto.worker.ts --bundle --minify --format=iife --platform=browser --target=es2020 --outfile=public/crypto.worker.js",
+    "dev": "npm run build:worker && NODE_ENV=development node server.mjs",
+    "build": "npm run build:worker && next build",
     "start": "NODE_ENV=production node server.mjs",
     "check": "tsc --noEmit"
   },
   "dependencies": {
     "@noble/ciphers": "^2.4.0",
     "@types/qrcode": "^1.5.5",
+    "libsodium-wrappers": "^0.8.4",
     "lucide-react": "^0.468.0",
     "next": "16.3.6",
     "qrcode": "^1.5.4",
@@ -22,6 +24,7 @@
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.3",
     "@types/react-dom": "^19.0.2",
+    "esbuild": "^0.25.0",
     "typescript": "^5.7.2"
   }
 }

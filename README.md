@@ -17,7 +17,7 @@ Files are saved to `~/Downloads/FlashDrop`. Override with `FLASHDROP_DESTINATION
 ## Transfer behavior
 
 - 8 MiB chunks with 2–4 adaptive upload lanes
-- Off-main-thread parallel encryption workers for responsive, higher-throughput phone uploads
+- WASM-backed, off-main-thread parallel encryption workers for responsive, higher-throughput phone uploads
 - ChaCha20-Poly1305 encryption per chunk using the QR session key (works on local HTTP without a certificate)
 - Automatic retry with exponential backoff
 - Resume after a connection drop while the browser still holds the selected file
