@@ -150,7 +150,9 @@ export function Sender() {
         startedAt: 0,
       })),
     ]);
-    event.target.value = "";
+    // Do not clear this input. Several Android gallery/content providers tie
+    // their temporary read grant to the live input selection; clearing it can
+    // make an otherwise valid File unreadable midway through a large queue.
   }
 
   function update(key: string, changes: Partial<Item>) {
